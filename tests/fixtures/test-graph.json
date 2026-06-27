@@ -1,0 +1,88 @@
+{
+  "nodes": [
+    {
+      "name": "public-a",
+      "kind": "service",
+      "publicExposed": true
+    },
+    {
+      "name": "public-b",
+      "kind": "service",
+      "publicExposed": true
+    },
+    {
+      "name": "service-c",
+      "kind": "service",
+      "publicExposed": false
+    },
+    {
+      "name": "service-d",
+      "kind": "service",
+      "publicExposed": false,
+      "vulnerabilities": [
+        {
+          "file": "service-d/main.py",
+          "severity": "high",
+          "message": "Test vulnerability for filter coverage."
+        }
+      ]
+    },
+    {
+      "name": "sink-db",
+      "kind": "rds"
+    },
+    {
+      "name": "sink-queue",
+      "kind": "sqs"
+    },
+    {
+      "name": "branch-x",
+      "kind": "service"
+    },
+    {
+      "name": "branch-y",
+      "kind": "service"
+    }
+  ],
+  "edges": [
+    {
+      "from": "public-a",
+      "to": [
+        "sink-queue"
+      ]
+    },
+    {
+      "from": "public-b",
+      "to": "service-c"
+    },
+    {
+      "from": "service-c",
+      "to": [
+        "service-d",
+        "sink-db",
+        "undefined-node"
+      ]
+    },
+    {
+      "from": "service-d",
+      "to": [
+        "public-b",
+        "sink-queue"
+      ]
+    },
+    {
+      "from": "branch-x",
+      "to": [
+        "branch-y",
+        "sink-db"
+      ]
+    },
+    {
+      "from": "branch-y",
+      "to": [
+        "branch-x",
+        "sink-db"
+      ]
+    }
+  ]
+}
