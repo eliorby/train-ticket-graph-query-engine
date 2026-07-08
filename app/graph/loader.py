@@ -14,14 +14,15 @@ from app.models.issue import Issue
 
 @dataclass
 class LoadResult:
-    """Outcome of loading a graph file, including validation side-effects."""
+    """Outcome of loading a graph file."""
 
     graph: Graph
     issues: list[Issue] = field(default_factory=list)
 
 
 def _normalize_to_field(raw_to: str | list[str]) -> tuple[list[str], bool]:
-    """Coerce a string ``to`` value into a single-element list.
+    """
+    Coerce a string ``to`` value into a single-element list.
 
     Returns the normalized list and whether coercion was performed.
     """
@@ -32,74 +33,56 @@ def _normalize_to_field(raw_to: str | list[str]) -> tuple[list[str], bool]:
 
 def _parse_node(raw: dict[str, Any]) -> Node:
     """Parse a raw node dict into a Node model."""
-    vulnerabilities = [
-        Vulnerability(**v) for v in raw.get("vulnerabilities", [])
-    ]
     return Node(
         name=raw["name"],
         kind=raw.get("kind", "service"),
         language=raw.get("language"),
         path=raw.get("path"),
         publicExposed=raw.get("publicExposed", False),
-        vulnerabilities=vulnerabilities,
+        vulnerabilities=[Vulnerability(**v) for v in raw.get("vulnerabilities", [])],
         metadata=raw.get("metadata", {}),
     )
 
 
 def load_graph(path: Path) -> LoadResult:
-    """Load a graph JSON file, normalize edge shapes, and build adjacency.
+    """
+    Load a graph JSON file, normalize edge shapes, and build adjacency.
 
-    Dangling node references are recorded as validation issues and excluded
-    from the adjacency map so traversal cannot follow invalid edges.
+    Dangling node references are recorded as issues
+        and excluded from the adjacency map
+        so traversal cannot follow invalid edges.
     """
     with path.open(encoding="utf-8") as handle:
         data = json.load(handle)
 
-    issues: list[Issue] = []
     nodes: dict[str, Node] = {}
     for raw_node in data.get("nodes", []):
         node = _parse_node(raw_node)
         nodes[node.name] = node
 
-    normalized_edges: list[Edge] = []
+    edges: list[Edge] = []
     adjacency: dict[str, list[str]] = {name: [] for name in nodes}
+    issues: list[Issue] = []
 
     for raw_edge in data.get("edges", []):
         from_node = raw_edge["from"]
-        to_list, was_normalized = _normalize_to_field(raw_edge["to"])
 
+        # edge normalization
+        to_nodes, was_normalized = _normalize_to_field(raw_edge["to"])
         if was_normalized:
-            issues.append(
-                Issue(
-                    code="normalized-to-field",
-                    severity="info",
-                    message=(
-                        f"Edge from '{from_node}' had a string 'to' field; "
-                        f"normalized to a single-element array."
-                    ),
-                )
-            )
-
-        edge = Edge(from_=from_node, to=to_list)
-        normalized_edges.append(edge)
+            issues.append(Issue.normalized_to_field(from_node))
+        edge = Edge(from_=from_node, to=to_nodes)
+        edges.append(edge)
 
         if from_node not in nodes:
             continue
 
-        for target in to_list:
+        # adjacency calculation
+        for target in to_nodes:
             if target not in nodes:
-                issues.append(
-                    Issue(
-                        code="dangling-node-reference",
-                        severity="error",
-                        message=(
-                            f"Edge from '{from_node}' references undefined "
-                            f"node '{target}'."
-                        ),
-                    )
-                )
+                issues.append(Issue.dangling_node_reference(from_node, target))
                 continue
             adjacency[from_node].append(target)
 
-    graph = Graph(nodes=nodes, adjacency=adjacency, edges=normalized_edges)
+    graph = Graph(nodes=nodes, edges=edges, adjacency=adjacency)
     return LoadResult(graph=graph, issues=issues)

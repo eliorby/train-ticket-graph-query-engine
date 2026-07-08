@@ -5,30 +5,31 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from app.graph.graph import Graph
-from app.models.issue import Issue
+from app.models.issue import Issue, IssueCode
+
 
 ValidatorFn = Callable[[Graph, list[Issue]], list[Issue]]
 
 
 def detect_dangling_references(
-    graph: Graph, load_issues: list[Issue]
+        _graph: Graph,
+        load_issues: list[Issue]
 ) -> list[Issue]:
     """Surface dangling node references recorded at load time."""
     return [
-        issue
-        for issue in load_issues
-        if issue.code == "dangling-node-reference"
+        issue for issue in load_issues
+        if issue.code == IssueCode.DANGLING_NODE_REFERENCE.value
     ]
 
 
 def detect_normalized_shapes(
-    graph: Graph, load_issues: list[Issue]
+        _graph: Graph,
+        load_issues: list[Issue]
 ) -> list[Issue]:
     """Surface edge shape normalizations recorded at load time."""
     return [
-        issue
-        for issue in load_issues
-        if issue.code == "normalized-to-field"
+        issue for issue in load_issues
+        if issue.code == IssueCode.NORMALIZED_TO_FIELD.value
     ]
 
 

@@ -3,21 +3,23 @@
 from fastapi import APIRouter
 
 from app.engine.filters import get_filter_info
-from app.models.responses import FilterInfo, FiltersResponse
+from app.models.api.filters import FiltersResponse, FilterInfo
+
 
 router = APIRouter(tags=["filters"])
 
 
 @router.get("/filters", response_model=FiltersResponse)
-def list_filters() -> FiltersResponse:
+def get_available_filters() -> FiltersResponse:
     """Return self-describing metadata for all registered filters."""
-    filters = [
-        FilterInfo(
-            name=definition.name,
-            scope=definition.scope,
-            description=definition.description,
-            parameters=list(definition.parameters),
-        )
-        for definition in get_filter_info()
-    ]
-    return FiltersResponse(filters=filters)
+    return FiltersResponse(
+        filters=[
+            FilterInfo(
+                name=definition.name,
+                scope=definition.scope.value,
+                description=definition.description,
+                parameters=list(definition.parameters),
+            )
+            for definition in get_filter_info()
+        ]
+    )

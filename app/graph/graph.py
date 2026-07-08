@@ -1,12 +1,15 @@
-"""In-memory adjacency-list graph built from normalized JSON."""
+"""Runtime in-memory graph abstraction built from normalized JSON."""
 
 from __future__ import annotations
+
+from collections.abc import Collection
 
 from app.models.graph import Edge, Node
 
 
 class Graph:
-    """Adjacency-list graph with node metadata and traversal-safe edges.
+    """
+    Adjacency-list graph with node metadata and traversal-safe edges.
 
     Only edges whose targets exist in the node map are included in the
     adjacency structure used for path enumeration. All normalized edges
@@ -16,12 +19,12 @@ class Graph:
     def __init__(
         self,
         nodes: dict[str, Node],
-        adjacency: dict[str, list[str]],
         edges: list[Edge],
+        adjacency: dict[str, list[str]],
     ) -> None:
         self._nodes = nodes
-        self._adjacency = adjacency
         self._edges = edges
+        self._adjacency = adjacency
 
     @property
     def nodes(self) -> dict[str, Node]:
@@ -50,11 +53,17 @@ class Graph:
         """Return all node names in stable insertion order."""
         return list(self._nodes.keys())
 
-    def is_sink(self, name: str, sink_kinds: set[str] | None = None) -> bool:
-        """Return whether a node qualifies as a sink.
+    def is_public_source(self, name: str) -> bool:
+        """Return whether a node is publicly exposed."""
+        node = self._nodes.get(name)
+        return node is not None and node.publicExposed is True
 
-        A sink is any node whose ``kind`` is not ``service``. When
-        ``sink_kinds`` is provided, the node's kind must also be in that set.
+    def is_sink(self, name: str, sink_kinds: Collection[str] | None = None) -> bool:
+        """
+        Return whether a node qualifies as a sink.
+
+        A sink is any node whose ``kind`` is not ``service``.
+        When ``sink_kinds`` is provided, the node's kind must also be in that set.
         """
         node = self._nodes.get(name)
         if node is None or node.kind == "service":
@@ -63,11 +72,6 @@ class Graph:
             return True
         return node.kind in sink_kinds
 
-    def is_public_source(self, name: str) -> bool:
-        """Return whether a node is publicly exposed."""
-        node = self._nodes.get(name)
-        return node is not None and node.publicExposed is True
-
     def is_vulnerable(self, name: str) -> bool:
         """Return whether a node has at least one vulnerability."""
         node = self._nodes.get(name)
@@ -75,19 +79,31 @@ class Graph:
 
     def public_sources(self) -> list[str]:
         """Return names of all publicly exposed nodes."""
-        return [n for n, node in self._nodes.items() if node.publicExposed]
+        return [
+            n for n, node in self._nodes.items()
+            if node.publicExposed
+        ]
 
-    def sinks(self, sink_kinds: set[str] | None = None) -> list[str]:
+    def sinks(self, sink_kinds: Collection[str] | None = None) -> list[str]:
         """Return names of all sink nodes, optionally filtered by kind."""
         return [
-            n
-            for n in self._nodes
+            n for n in self._nodes
             if self.is_sink(n, sink_kinds=sink_kinds)
         ]
 
     def vulnerable_nodes(self) -> list[str]:
         """Return names of all nodes with non-empty vulnerability lists."""
-        return [n for n in self._nodes if self.is_vulnerable(n)]
+        return [
+            n for n in self._nodes
+            if self.is_vulnerable(n)
+        ]
+
+    def vulnerable_nodes_on_path(self, path: list[str]) -> list[str]:
+        """Return vulnerable node names appearing on a path, in path order."""
+        return [
+            n for n in path
+            if self.is_vulnerable(n)
+        ]
 
     def node_kind_counts(self) -> dict[str, int]:
         """Return a count of nodes grouped by ``kind``."""
@@ -95,11 +111,3 @@ class Graph:
         for node in self._nodes.values():
             counts[node.kind] = counts.get(node.kind, 0) + 1
         return counts
-
-    def degree(self, name: str) -> int:
-        """Return total in- plus out-degree using traversal-safe edges."""
-        if name not in self._nodes:
-            return 0
-        in_count = sum(1 for edge in self._edges if name in edge.to)
-        out_count = len(self._adjacency.get(name, []))
-        return in_count + out_count

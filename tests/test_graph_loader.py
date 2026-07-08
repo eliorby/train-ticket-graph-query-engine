@@ -1,12 +1,15 @@
 """Unit tests for graph loading and normalization."""
 
-from app.graph.loader import load_graph
+from app.models.issue import IssueCode
 
 
 def test_normalizes_string_to_field(loaded_test_graph):
     """String-shaped ``to`` fields are coerced and recorded as info issues."""
     issues = loaded_test_graph.issues
-    normalized = [i for i in issues if i.code == "normalized-to-field"]
+    normalized = [
+        i for i in issues
+        if i.code == IssueCode.NORMALIZED_TO_FIELD.value
+    ]
     assert len(normalized) == 1
     assert "public-b" in normalized[0].message
 
@@ -20,7 +23,8 @@ def test_dangling_reference_excluded_from_adjacency(loaded_test_graph):
 def test_dangling_reference_recorded_as_error(loaded_test_graph):
     """Dangling node references are surfaced as error-severity issues."""
     dangling = [
-        i for i in loaded_test_graph.issues if i.code == "dangling-node-reference"
+        i for i in loaded_test_graph.issues
+        if i.code == IssueCode.DANGLING_NODE_REFERENCE.value
     ]
     assert len(dangling) == 1
     assert "undefined-node" in dangling[0].message
@@ -29,9 +33,8 @@ def test_dangling_reference_recorded_as_error(loaded_test_graph):
 def test_real_graph_catches_assurance_service_reference(loaded_real_graph):
     """The production graph must report the known assurance-service dangling ref."""
     dangling = [
-        i
-        for i in loaded_real_graph.issues
-        if i.code == "dangling-node-reference"
+        i for i in loaded_real_graph.issues
+        if i.code == IssueCode.DANGLING_NODE_REFERENCE.value
     ]
     targets = {issue.message for issue in dangling}
     assert any("assurance-service" in message for message in targets)
@@ -40,6 +43,7 @@ def test_real_graph_catches_assurance_service_reference(loaded_real_graph):
 def test_real_graph_normalizes_consign_edge(loaded_real_graph):
     """The consign-service edge with a string ``to`` is normalized."""
     normalized = [
-        i for i in loaded_real_graph.issues if i.code == "normalized-to-field"
+        i for i in loaded_real_graph.issues
+        if i.code == IssueCode.NORMALIZED_TO_FIELD.value
     ]
     assert any("consign-service" in issue.message for issue in normalized)

@@ -1,5 +1,9 @@
 """API-level tests using FastAPI TestClient."""
 
+from app.config import MAX_DEPTH_CEILING, MAX_RESULTS_CEILING, MAX_DFS_STEPS_CEILING
+from app.models.filters import Filter
+from app.models.issue import IssueCode
+
 from tests.conftest import REAL_GRAPH_PATH, TEST_GRAPH_PATH
 
 
@@ -25,7 +29,12 @@ def test_get_graph_filters_happy_path(client_for_graph):
     client = client_for_graph(TEST_GRAPH_PATH)
     response = client.get(
         "/graph",
-        params={"filters": "publicSource,sink", "maxDepth": 10, "maxResults": 50},
+        params={
+            "filters": f"{Filter.PUBLIC_SOURCE.value},{Filter.SINK.value}",
+            "maxDepth": 10,
+            "maxResults": 50,
+            "maxDfsSteps": 10_000,
+        },
     )
     assert response.status_code == 200
     body = response.json()
@@ -44,22 +53,33 @@ def test_get_graph_clamps_max_results(client_for_graph):
     client = client_for_graph(TEST_GRAPH_PATH)
     response = client.get(
         "/graph",
-        params={"filters": "sink", "maxResults": 99999},
+        params={"filters": Filter.SINK.value, "maxResults": 99999},
     )
     assert response.status_code == 200
     body = response.json()
-    assert body["max_results"] == 1000
+    assert body["max_results"] == MAX_RESULTS_CEILING
 
 
 def test_get_graph_clamps_max_depth(client_for_graph):
     client = client_for_graph(TEST_GRAPH_PATH)
     response = client.get(
         "/graph",
-        params={"filters": "sink", "maxDepth": 99999},
+        params={"filters": Filter.SINK.value, "maxDepth": 99999},
     )
     assert response.status_code == 200
     body = response.json()
-    assert body["max_depth"] == 20
+    assert body["max_depth"] == MAX_DEPTH_CEILING
+
+
+def test_get_graph_clamps_max_dfs_steps(client_for_graph):
+    client = client_for_graph(TEST_GRAPH_PATH)
+    response = client.get(
+        "/graph",
+        params={"filters": Filter.SINK.value, "maxDfsSteps": 9999999},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["max_dfs_steps"] == MAX_DFS_STEPS_CEILING
 
 
 def test_get_graph_validate(client_for_graph):
@@ -69,7 +89,7 @@ def test_get_graph_validate(client_for_graph):
     body = response.json()
     assert body["valid"] is False
     assert any(
-        issue["code"] == "dangling-node-reference"
+        issue["code"] == IssueCode.DANGLING_NODE_REFERENCE.value
         and "assurance-service" in issue["message"]
         for issue in body["issues"]
     )
@@ -80,4 +100,4 @@ def test_get_filters(client_for_graph):
     response = client.get("/filters")
     assert response.status_code == 200
     names = {item["name"] for item in response.json()["filters"]}
-    assert names == {"publicSource", "sink", "vulnerable"}
+    assert names == {Filter.PUBLIC_SOURCE.value, Filter.SINK.value, Filter.VULNERABLE.value}
