@@ -6,9 +6,9 @@ This service loads a static JSON graph describing the Train Ticket microservices
 (services, an RDS instance, an SQS queue, and the edges between them)
 and exposes it through a generic, filterable query engine over a REST API.
 
-The core idea is to find multi-hop **routes** through the graph that match
+The core idea is to find **multi-hop routes** through the graph that match
 a composable set of security-relevant conditions - 
-e.g. routes that start at a public-facing service, pass through a node with a
+i.e. routes that start at a public-facing service, pass through a node with a
 known vulnerability, and terminate at a sensitive sink (a database or queue).
 
 This is a small, self-contained version of attack-path / toxic-flow analysis:
@@ -24,7 +24,7 @@ public source, vulnerable node, sink destination -
 and asks for a generic, extensible filtering mechanism over routes.
 
 This clearly meant to answer a security question: **can something reachable
-from the outside world get to a sensitive resource through a weak point?**.
+from the outside world get to a sensitive resource through a weak point?**
 
 Each filter alone answers a *different* real security question
 (attack surface mapping / vulnerability triage / data-exposure mapping).
@@ -35,17 +35,17 @@ the API isn't just "filter the graph," it's
 
 ### 2.2 Key Interpretive Decisions
 
-| ???                                          | Interpretive Decision                                                                                                                                     |
+|                                              | Interpretive Decision                                                                                                                                     |
 |----------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `route` definition                           | A simple **N-hop path** (no repeated nodes within the same route) between any two nodes in the graph.                                                     |
+| `route` definition                           | A simple **N-hop path** (no repeated nodes within the same route), between any two nodes in the graph.                                                    |
 | Combining multiple filters in a single query | **AND logic** - together they answer "where's the actual exploitable path". Running filters individually already produces the broader, independent views. |
 | `sink` classification                        | Derived, not hardcoded: **any node where `kind != "service"`** (currently `rds`, `sqs`), with an optional `sinkKinds` filter param to narrow further.     |
-| `vulnerable node` definition                 | A node with a **non-empty `vulnerabilities` array**, at **any** severity (a `minSeverity` threshold was considered and deferred).                         |
+| vulnerable `node` definition                 | A node with a **non-empty `vulnerabilities` array**, at **any** severity (a `minSeverity` threshold was considered and deferred).                         |
 | Edge `to` values                             | Treated as an unordered set of target node names.                                                                                                         |
 
 ### 2.3 Problems found in source data & How I handled them
 
-| Problems found in source data                                                                                                         | How I handled them                                                                                                                                               |
+| Source Data Issue                                                                                                                     | Handling Decision                                                                                                                                                |
 |---------------------------------------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `Edge` `to` field shape inconsistency                                                                                                 | This is a parsing concern → silently normalize (string → single-element array).                                                                                  |
 | Dangling node references - missing from `nodes` but referenced `edges` (i.e. `assurance-service`)                                     | This is a data-integrity concern → flag.                                                                                                                         |
@@ -56,18 +56,11 @@ the API isn't just "filter the graph," it's
 The following are explicitly left out of the implementation:
 
 - **API AuthN/AuthZ** - this service exposes infrastructure topology and
-  known vulnerabilities, which is itself sensitive;
-  in a real deployment this would sit behind auth.
+  known vulnerabilities, which is itself sensitive.
+  In a real deployment this would sit behind auth.
   Skipped here to keep the assignment focused on the graph/query engine itself.
 - **Persistence layer** - the graph is static and loaded once from the static JSON file
-  at startup; no database, no write path, no updates.
-- **Pagination beyond `maxResults`** - results are hard-capped rather than paginated;
-  cursor-based pagination would be the natural next step
-  if this became a real, growing dataset.
-- **Per-route cycle-edge detail in the API response** - 
-  cycle-edges are detected and tracked internally during enumeration
-  (to prevent infinite recursion), but not currently surfaced in the API response,
-  since the API returns an aggregated subgraph rather than a per-path route list.
+  at startup. No database, no write path (`POST`/`PUT`/`DELETE`), no updates.
 
 ## 3. Design Decisions
 
@@ -86,9 +79,10 @@ would add operational weight without a corresponding benefit.
 
 Two load-time steps happen before the graph is considered ready:
 - **Normalization** - of the `Edge` `to` field shape (single string → single-element array).
-- **Validation** - edges referencing a missing node are excluded from traversal
+- **Validation + Pruning** - edges referencing a missing node are excluded from traversal
   (so a single bad reference can't crash queries).
-Both are recorded as structural issues, and exposed via `/graph/validate` (§4.3.2).
+
+**Issue Aggregation** - both steps are recorded as structural issues, and exposed via `/graph/validate` (§4.3.2).
 
 ### 3.2 Query Engine (Path Enumeration & Aggregation)
 
@@ -131,9 +125,9 @@ registered in a simple lookup table.
 
 The requested filters are compiled into a QueryPlan, which separates them into:
 
-- **Start Filters**: evaluated during start-candidate selection
-- **End Filters**: evaluated during end-candidate selection
-- **Path Filters**: evaluated only on full candidate routes
+- **Start Filters**: evaluated during start-candidate selection.
+- **End Filters**: evaluated during end-candidate selection.
+- **Path Filters**: evaluated only on full candidate routes.
 
 Each filter predicate is shaped as:
 
@@ -150,7 +144,7 @@ The three required filters map onto this directly:
 | `vulnerable`   | PATH            | any node   | `any(graph.is_vulnerable(n) for n in path)`          |
 
 
-- A request with **multiple filters** ANDs them;
+- A request with **multiple filters** ANDs them.
 - A request with **a single filter** applies just that one.
 - When **no filters** are supplied, no traversal runs and the full,
   unfiltered graph is returned as-is.
@@ -174,8 +168,7 @@ the public API returns an **aggregated subgraph** rather than individual routes 
 
 There can be multiple public services, sinks, and vulnerable nodes.
 
-The query engine first **builds a `QueryPlan` from the requested filters**.
-The plan determines:
+The query engine first **builds a `QueryPlan` from the requested filters**, which determines:
 - which nodes are valid **start candidates**.
 - which nodes are valid **end candidates**.
 - which predicates must be **evaluated on complete paths**.
@@ -209,8 +202,6 @@ The engine uses three independent guards:
   An unbounded traversal exposed over an API is itself a risky exposure,
   so the engine holds itself to the same standard.
 
-- All defaults are overridable per request and clamped server-side to hard ceilings.
-
 - When no filters are applied, no traversal runs, and all three fields are returned as `null`
   rather than echoing unused defaults.
 
@@ -218,11 +209,11 @@ The engine uses three independent guards:
 
 ### 4.1 App Folder Structure
 
-| Folder    | Responsibility                                                                            |
-|-----------|-------------------------------------------------------------------------------------------|
-| `graph/`  | **Graph Infrastructure**: JSON loading into `Graph`, normalization, issue aggregation.    |
-| `engine/` | **Query Engine**: query planning, route enumeration, filter predicates, graph validators. |
-| `api/`    | **HTTP Layer**: FastAPI routers, request parsing, response construction.                  |
+| Folder    | Responsibility                                                                                               |
+|-----------|--------------------------------------------------------------------------------------------------------------|
+| `graph/`  | **Graph Infrastructure**: JSON loading into `Graph`, normalization, validation + pruning, issue aggregation. |
+| `engine/` | **Query Engine**: graph validators, filter predicates, query planning, route enumeration.                    |
+| `api/`    | **HTTP Layer**: FastAPI routers, request parsing, response construction.                                     |
 
 ### 4.2 Query Engine: Component Overview
 
@@ -232,7 +223,7 @@ The engine uses three independent guards:
 JSON file
    │
    ▼
-Loader (Normalization + Issue Aggregation)
+Loader (Normalization, Validation + Pruning, Issue Aggregation)
    │
    ▼
 In-memory AppState (Graph + load_issues: list[Issue])
@@ -240,10 +231,10 @@ In-memory AppState (Graph + load_issues: list[Issue])
 
 #### 4.2.2 Query Engine
 
-- **Graph Validation** (`VALIDATOR_REGISTRY`) </br>
+- **Graph Validators** (`VALIDATOR_REGISTRY`) </br>
 `detect_x(Graph, load_issues: list[Issue]) → list[Issue]`
 
-- **Filtering** (`FILTER_REGISTRY`): </br>
+- **Filter Predicates** (`FILTER_REGISTRY`): </br>
 `is_x(Graph, path: list[str], FilterContext) → bool` </br>
 `FilterContext` contains `sink_kinds: frozenset[str] | None`
 
@@ -280,7 +271,7 @@ Provides a graph view + summary.
 
 Filtering, traversal limits, and sink narrowing
 are all exposed as **optional query parameters**:
-- `filters` (comma-separated; AND semantics) -</br>
+- `filters` (comma-separated, AND semantics) -</br>
   with it, it returns the **aggregated subgraph of all matching routes**.</br>
   without it, it returns the **full unfiltered graph**.
 - `maxDepth` - maximum number of hops per route.
@@ -288,8 +279,8 @@ are all exposed as **optional query parameters**:
 - `maxDfsSteps` - maximum amount of DFS search work.
 - `sinkKinds` - narrows the `sink` filter (i.e. `rds,sqs`).
 
-Traversal limits are only meaningful when `filters` is set;
-otherwise they are returned as `null` in the response because no traversal runs.
+Traversal limits are only meaningful when `filters` is set.
+Otherwise, they are returned as `null` in the response because no traversal runs.
 
 **Response Metadata**
 
@@ -424,57 +415,103 @@ VALIDATOR_REGISTRY: dict[str, ValidatorFn] = {
 
 ## 6. Trade-offs & Future Improvements
 
-- **Predicate registry → Declarative filter DSL (Domain Specific Language).**
-  Considered building filters as JSON-configurable conditions
-  (field/operator/value, with AND/OR/NOT composition)
-  so filters could be defined without writing code.
-  Chose the simpler predicate-registry approach instead,
-  since a full DSL is too complex for a dataset and filter set this small,
-  and would read as over-engineering relative to the time box.
-  Would revisit if filter logic needed to be authored by non-engineers
-  or changed at runtime without a deploy.
-- **OR semantics across filters.** Not built, since AND-composition of
-  independently-usable filters already covers both the narrow 
-  ("real attack path") and broad ("any one condition") cases (§2.2).
-  Would revisit if a concrete use case needed "either of these two conditions"
-  as a single query rather than two separate ones.
-- **In-memory adjacency → Graph DB backend.** (e.g. Neo4j) -
-  would become worth it at production scale (large, live, continuously-updated graphs
-  with potentially millions of nodes/edges, 
-  where path queries need to be indexed or precomputed
-  rather than repeatedly walked in memory on every request.
-- **Severity-weighted route ranking.** Vulnerability severity is currently
-  surfaced but not used to rank results. A natural next step would be
-  scoring each route (e.g. by max/aggregate severity along the path)
-  so the most dangerous routes surface first,
+### 6.1 Filtering
+
+- **`minSeverity` param on the `vulnerable` filter.**</br>
+  Severity is currently surfaced in Node vulnerability data but not used for filtering
+  The current `vulnerable` filter matches any route that contains at least one vulnerability,
+  regardless of severity.
+
+- **AND semantics → Boolean filter composition.**</br>
+  if a concrete `OR` use case needed s a single query rather than two separate ones.
+
+- **`GET /graph` with query params → `POST /graph/query` with a structured filter body.**</br>
+  for more complex filtering, i.e. nested boolean (`AND`/`OR`/`NOT`) composition: 
+  `publicSource AND (sink rds OR sink sqs) AND NOT severity low`.
+```json
+{
+  "and": [
+    { "filter": "publicSource" },
+    { "or": [
+      { "filter": "sink", "sinkKinds": ["rds"] },
+      { "filter": "sink", "sinkKinds": ["sqs"] }
+    ]},
+    { "not": { "filter": "vulnerable", "severity": "low" } }
+  ]
+}
+```
+
+- **Filter predicate registry → Declarative filter DSL (Domain Specific Language).**</br>
+  defining filters as JSON-configurable conditions using `field/operator/value`
+  (i.e. `node.kind equals rds`), with boolean composition.
+  This turns filters from application logic into configurable policy (much more fliexible).
+  Useful if filter logic needs to be authored by security/product users
+  or changed at runtime without requiring an engineer to modify code and redeploy.
+```json
+{
+  "filter": {
+    "or": [
+      {
+        "field": "node.kind",
+        "operator": "equals",
+        "value": "rds"
+      },
+      {
+        "field": "vulnerability.severity",
+        "operator": "gt",
+        "value": "medium"
+      },
+      {
+        "field": "node.publicExposed",
+        "operator": "equals",
+        "value": true
+      }
+    ]
+  }
+}
+```
+
+### 6.2 Storage / Persistence
+
+- **In-memory adjacency → Graph DB (i.e. Neo4j).**</br>
+  would become useful at larger production scale:
+  large, live, continuously updated graphs
+  with potentially millions of nodes and edges, 
+  where path queries need indexing, precomputation, or graph-native traversal
+  instead of repeatedly walking an in-memory structure on every request.
+
+### 6.3 API Response
+
+- **Severity-weighted route ranking.**</br>
+  Vulnerability severity is currently surfaced but not used to rank results.
+  A natural next step would be scoring each route by various factors
+  (such as: maximum severity, number of vulnerabilities, sink sensitivity,
+  public exposure, and path length),
+  so the most dangerous routes appear first,
   instead of being returned in discovery order.
-- **`minSeverity` param on the `vulnerable` filter.** Severity is currently
-  surfaced in route/vulnerability data but not filterable -
-  `vulnerable` matches on presence of any vulnerability, regardless of severity.
-  Scoped out per §2.2 (vulnerable = non-empty `vulnerabilities` array, no threshold),
-  but a `minSeverity` query param would be a small, low-risk addition
-  if a real use case wanted to exclude low-severity findings from route results.
-- **Exposing per-route detail (including cycle-edges).**
-  The aggregated subgraph response (§3.2) is intentionally coarser than
-  the original per-route design: it tells a client *which* nodes/edges are relevant,
-  not *how many distinct paths* connect them
-  or *which* of those paths loop back on themselves.
-  If a future client needed to render individual attack paths
-  (e.g. a step-by-step "here's path #1, here's path #2" view)
-  rather than a single highlighted subgraph,
-  the existing internal `Route` representation already has everything needed -
-  it would just need a new response field
-  (e.g. an optional `routes: [...]` list alongside the subgraph)
-  rather than new engine logic.
-- **`GET /graph` with query params → `POST /graph/query` with a structured filter body** -
-  this is the natural extension if filter complexity grows (e.g. nested boolean composition).
+
+- **Aggregated subgraph → + Exposing per-route detail (under `routes: [...]`).**</br>
+  For a step-by-step attack-path view and rendering individual attack paths.
+  Showing how many distinct routes exist, which exact route each edge belongs to,
+  or route-level metadata such as cycle-edge annotations
+  (which of those routes loop back on themselves).
+  The existing internal `Route` representation already supports this,
+  so it would mainly be an API contract change rather than new engine logic.
+
+- **Pagination beyond `maxResults`.**</br>
+  Current implementation uses `maxResults` as a hard cap to keep responses bounded.
+  If the API exposed per-route results,
+  cursor-based pagination would be the natural next step.
 
 ## 7. Tech Stack
 
 - **Python 3.11+**
-- **FastAPI** for the REST layer (async, automatic OpenAPI/schema docs,
-  Pydantic models for request/response validation)
-- **Pydantic** for the graph/route/issue data models
+- **Pydantic** - a Python library for defining typed data models
+  and automatically validating/parsing input data,
+  commonly used with FastAPI for request and response schemas.
+- **FastAPI** - a modern Python web framework for building REST APIs quickly,
+  with built-in request validation, typed schemas, async support,
+  and automatic Swagger/OpenAPI docs.
 
 ## 8. How to Run
 
